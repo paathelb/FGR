@@ -14,6 +14,7 @@ from utils import kitti_utils_official
 
 def save_result(seq, output_dir, kitti_dataset_path, region_growth_config):
     # print("%s: begin" % seq)
+    
     thresh_ransac = region_growth_config.THRESH_RANSAC
     thresh_seg_max = region_growth_config.THRESH_SEG_MAX
     ratio = region_growth_config.REGION_GROWTH_RATIO
@@ -34,21 +35,19 @@ def save_result(seq, output_dir, kitti_dataset_path, region_growth_config):
     dic = {'calib': calib,
            'shape': img.shape,
            'sample': {}}
-
+     
     if len(objects) == 0:
-
         with open(os.path.join(output_dir, "%s.pickle" % seq), 'wb') as fp:
             pickle.dump(dic, fp)
-
         print("%s: empty" % seq)
         return
-
-    pc_all, object_filter_all = kitti_utils_official.get_point_cloud_my_version(lidar_path, calib, img.shape, back_cut=False)
-    mask_ground_all, ground_sample_points = kitti_utils_official.calculate_ground(lidar_path, calib, img.shape, 0.2, back_cut=False)
-
-    z_list = []
-    index_list = []
-    valid_list = []
+    
+    pc_all, object_filter_all = kitti_utils_official.get_point_cloud_my_version(lidar_path, calib, img.shape, back_cut=False)   # object_filter_all is True if the point falls within image size
+    mask_ground_all, ground_sample_points = kitti_utils_official.calculate_ground(lidar_path, calib, img.shape, 0.2, back_cut=False)    # mask_ground_all is True if the point is not a ground point. 
+    
+    z_list = []     # list of medians of depth? of points inside 2D bbox
+    index_list = [] # list of all objects indices
+    valid_list = [] # list of valid objects. If pc in 3D box is >= 30, then it is valid.
 
     valid_index = []
 
@@ -59,8 +58,9 @@ def save_result(seq, output_dir, kitti_dataset_path, region_growth_config):
         _, object_filter = kitti_utils_official.get_point_cloud_my_version(lidar_path, calib, img.shape, [objects[i].boxes[0]], back_cut=False)
         pc = pc_all[object_filter == 1]
         
-        filter_sample = kitti_utils_official.calculate_gt_point_number(pc, objects[i].corners)
+        filter_sample = kitti_utils_official.calculate_gt_point_number(pc, objects[i].corners) #Why have access to 3D GT box
         pc_in_box_3d = pc[filter_sample]
+        
         if len(pc_in_box_3d) < 30:
             flag = 0
 
@@ -70,55 +70,63 @@ def save_result(seq, output_dir, kitti_dataset_path, region_growth_config):
         z_list.append(np.median(pc[:, 2]))
         index_list.append(i)
 
-    sort = np.argsort(np.array(z_list))
-    object_list = list(np.array(index_list)[sort])
+    try: sort = np.argsort(np.array(z_list))[1]          # Modified/Changed by Helbert PAAT # choose second closest object
+    except: sort = np.argsort(np.array(z_list))[0]       # if there is only one object in the frame
 
-    mask_object = np.ones((pc_all.shape[0]))
+    try: object_list = list(np.array(index_list)[sort])
+    except: object_list = [np.array(index_list)[sort]]
 
+    mask_object = np.ones((pc_all.shape[0]))    # mask_object is created to see which points remain after points belonging to other objects are removed. 
+    
     # [add] dict to be saved
     dic = {'calib': calib,
            'shape': img.shape,
            'ground_sample': ground_sample_points,
            'sample': {}}
 
+    print(len(object_list))
+
     for i in object_list:
-        result = np.zeros((7, 2))
+        result = np.zeros((7, 2))       # stores the threshold and the corresponding sum of points
         count = 0
         mask_seg_list = []
 
         for j in range(thresh_seg_max):
             thresh = (j + 1) * 0.1
             _, object_filter = kitti_utils_official.get_point_cloud_my_version(
-                lidar_path, calib, img.shape, [objects[i].boxes[0]], back_cut=False)
+                               lidar_path, calib, img.shape, [objects[i].boxes[0]], back_cut=False) # object_filter is True for those that fall inside 2D box
             
             filter_z = pc_all[:, 2] > 0
             mask_search = mask_ground_all * object_filter_all * mask_object * filter_z
             mask_origin = mask_ground_all * object_filter * mask_object * filter_z
-            mask_seg = kitti_utils_official.region_grow_my_version(pc_all.copy(), 
-                                                                   mask_search, mask_origin, thresh, ratio)
+            mask_seg = kitti_utils_official.region_grow_my_version(pc_all.copy(), mask_search, mask_origin, thresh, ratio)  # region-growing algorithm
+
+            # If no mask_seg is formed, continue with higher threshold
             if mask_seg.sum() == 0:
                 continue
 
             if j >= 1:
-                mask_seg_old = mask_seg_list[-1]
-                if mask_seg_old.sum() != (mask_seg * mask_seg_old).sum():
+                mask_seg_old = mask_seg_list[-1] 
+                if mask_seg_old.sum() != (mask_seg * mask_seg_old).sum():       # If mask_seg_old is just a subset of mask_seg, we don't consider it new segmentation
                     count += 1
-            result[count, 0] = j  
-            result[count, 1] = mask_seg.sum()
+            result[count, 0] = j                # saves the  threshold j
+            result[count, 1] = mask_seg.sum()   # saves the corresponding sum of points in mask_seg
             mask_seg_list.append(mask_seg)
-            
-        best_j = result[np.argmax(result[:, 1]), 0]
+        
+        best_j = result[np.argmax(result[:, 1]), 0]     # Chooses the threshold with the biggest mask_seg points
+
         try:
             mask_seg_best = mask_seg_list[int(best_j)]
-            mask_object *= (1 - mask_seg_best)
-            pc = pc_all[mask_seg_best == 1].copy()
+            mask_object *= (1 - mask_seg_best)          # removes points in mask_seg_best in mask_object
+            pc = pc_all[mask_seg_best == 1].copy()      # Get the corresponding point cloud coordinates for mask_seg_best
         except IndexError:
-            # print("bad region grow result! deprecated")
-            continue
-        if i not in valid_list:
+            # print("Bad region grow result! Deprecated")
             continue
 
-        if kitti_utils_official.check_truncate(img.shape, objects[i].boxes_origin[0].box):
+        if i not in valid_list:         # Why do we have access to the valid list?
+            continue
+        
+        if kitti_utils_official.check_truncate(img.shape, objects[i].boxes_origin[0].box):  # different with objects[i].boxes[0].box?
             # print('object %d truncates in %s, with bbox %s' % (i, seq, str(objects[i].boxes_origin[0].box)))
 
             mask_origin_new = mask_seg_best
@@ -145,12 +153,11 @@ def save_result(seq, output_dir, kitti_dataset_path, region_growth_config):
                 'pc': pc
             }
 
-
+    # Save result
     with open(os.path.join(output_dir, "%s.pickle" % seq), 'wb') as fp:
         pickle.dump(dic, fp)
 
     print("%s: end" % seq)
-
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -182,8 +189,10 @@ if __name__ == "__main__":
         default='../configs/config.yaml',
         help='pre-defined parameters for running save_region_growth.py'
     )
-
+    
+    
     args = parser.parse_args()
+    
     
     assert os.path.isfile(args.root_dir), "Can't find train sequence text file in: %s" % args.root_dir
     assert os.path.isfile(args.region_growth_config_path), "Can't find region growth config file in: %s" % args.region_growth_config_path
@@ -206,7 +215,7 @@ if __name__ == "__main__":
     for i in range(len(seq_collection)):
         seq_collection[i] = seq_collection[i].strip()
         assert len(seq_collection[i]) == 6
-
+    
     print("find %d training samples." % len(seq_collection))
     print("result will be stored in %s" % args.output_dir)
 
@@ -214,6 +223,7 @@ if __name__ == "__main__":
     for seq in seq_collection:
         # save_result(seq)
         pool.apply_async(save_result, (seq, args.output_dir, args.kitti_dataset_path, region_growth_config))
+        #save_result(seq, args.output_dir, args.kitti_dataset_path, region_growth_config)
 
     pool.close()
     pool.join()

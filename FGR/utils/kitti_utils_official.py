@@ -9,6 +9,8 @@ import json
 import shutil
 import time
 
+
+
 # process all the data in camera 2 frame, the kitti raw data is on camera 0 frame
 #------------------------------------------------------ Class define ------------------------------------------------------#
 class Box3d:
@@ -532,7 +534,7 @@ def calculate_ground_for_mask(LIDAR_PATH, frame_calib, image_shape=None, thresh_
     # Calculate the point cloud
     point_cloud = np.vstack((x, y, z))
     point_cloud = lidar_to_cam_frame(point_cloud.T, frame_calib)  # N x 3
-
+    
     # Only keep points in front of camera (positive z)
     if back_cut == True:
         point_cloud = point_cloud[point_cloud[:,2] > 0]   # camera frame 3 x N
@@ -592,12 +594,14 @@ def calculate_ground(LIDAR_PATH, frame_calib, image_shape=None, thresh_ransac=0.
     # Only keep points in front of camera (positive z)
     if back_cut:
         point_cloud = point_cloud[point_cloud[:,2] > back_cut_z]   # camera frame 3 x N
+
     planeDiffThreshold = thresh_ransac
     temp = np.sort(point_cloud[:,1])[int(point_cloud.shape[0]*0.75)]
     cloud = point_cloud[point_cloud[:,1]>temp]
     points_np = point_cloud
     mask_all = np.ones(points_np.shape[0])
     final_sample_points = None
+    
     for i in range(5):
          best_len = 0
          for iteration in range(min(cloud.shape[0], 100)):
@@ -608,15 +612,15 @@ def calculate_ground(LIDAR_PATH, frame_calib, image_shape=None, thresh_ransac=0.
                 continue
 
              plane = fitPlane(sampledPoints)
-             diff = np.abs(np.matmul(points_np, plane) - np.ones(points_np.shape[0])) / np.linalg.norm(plane)
-             inlierMask = diff < planeDiffThreshold
+             diff = np.abs(np.matmul(points_np, plane) - np.ones(points_np.shape[0])) / np.linalg.norm(plane) #Why?
+             inlierMask = diff < planeDiffThreshold #True if ground point?
              numInliers = inlierMask.sum()
-             if numInliers > best_len and np.abs(np.dot(plane/np.linalg.norm(plane),np.array([0,1,0])))>0.9:
+             if numInliers > best_len and np.abs(np.dot(plane/np.linalg.norm(plane),np.array([0,1,0])))>0.9: #Why?
                  mask_ground = inlierMask
                  best_len = numInliers
                  best_plane = plane
                  final_sample_points = sampledPoints
-         mask_all *= 1 - mask_ground
+         mask_all *= 1 - mask_ground #True if not ground?
     return mask_all, final_sample_points
 
 
@@ -800,7 +804,7 @@ def get_point_cloud_my_version(LIDAR_PATH, frame_calib, image_shape=None, object
     # Calculate the point cloud
     point_cloud = np.vstack((x, y, z))
     point_cloud = lidar_to_cam_frame(point_cloud.T, frame_calib)  # N x 3
-
+    
     # Only keep points in front of camera (positive z)
     if back_cut: 
         point_cloud = point_cloud[point_cloud[:,2] > back_cut_z].T   # camera frame 3 x N

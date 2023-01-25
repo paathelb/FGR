@@ -72,7 +72,7 @@ def Find_2d_box(maximum, KeyPoint_3d, box_2d, p2, corner, detect_config,
                 thresh_filter = (thresh_filter_1 & thresh_filter_2).astype(np.uint8)
 
                 # calculate satisfying point number between original bbox and shrinked bbox
-                CurrentValue = np.sum(thresh_filter) / temp.shape[0]
+                CurrentValue = np.sum(thresh_filter) / temp.shape[0] 
 
             except:
                 return None, None, None, None, None, None, None, None
@@ -85,7 +85,7 @@ def Find_2d_box(maximum, KeyPoint_3d, box_2d, p2, corner, detect_config,
                 min_y = current_min_y
                 max_x = current_max_x
                 max_y = current_max_y
-
+        
         box = np.array([[min_x, min_y],
                         [min_x, max_y],
                         [max_x, max_y],
@@ -144,7 +144,7 @@ def Find_2d_box(maximum, KeyPoint_3d, box_2d, p2, corner, detect_config,
     else:
         FinalPoint = point_1
         FinalIndex = index_1
-        
+    
     # 2. calculate intersection from key-vertex to frustum [vertically]
     # mat_1: rotation matrix from  
     FinalPoint_Weight = np.linalg.inv(mat_1).dot(np.array([FinalPoint[0], FinalPoint[1]]).T)
@@ -171,7 +171,7 @@ def Find_2d_box(maximum, KeyPoint_3d, box_2d, p2, corner, detect_config,
     # filter cars with very bad height
     if np.abs(y_max - y_min) < detect_config.MIN_HEIGHT_NORMAL or \
        np.abs(y_max - y_min) > detect_config.MAX_HEIGHT_NORMAL or \
-       (truncate == True and (y_max < detect_config.MIN_TOP_TRUNCATE or 
+       (truncate == True and (y_max < detect_config.MIN_TOP_TRUNCATE or #why is this the constraint?
                               y_max > detect_config.MAX_TOP_TRUNCATE or 
                               y_min < detect_config.MIN_BOT_TRUNCATE or 
                               y_min > detect_config.MAX_BOT_TRUNCATE)):
@@ -179,6 +179,7 @@ def Find_2d_box(maximum, KeyPoint_3d, box_2d, p2, corner, detect_config,
         error_message = "top: %.4f, bottom: %.4f, car height: %.4f, deprecated" % (y_min, y_max, np.abs(y_max - y_min))
         return None, None, None, None, None, None, error_message, 0
 
+    
     # 3. calculate intersection from key-vertex to frustum [horizontally], to get car's length and width
     if truncate == True or FinalPoint_Weight[0] < detect_config.FINAL_POINT_FLIP_THRESH or \
                            FinalPoint_Weight[1] < detect_config.FINAL_POINT_FLIP_THRESH:
@@ -222,7 +223,7 @@ def Find_2d_box(maximum, KeyPoint_3d, box_2d, p2, corner, detect_config,
                                                 length_width_boundary=detect_config.LENGTH_WIDTH_BOUNDARY)
         
     # 4. filter cases with still bad key-vertex definition,
-    # we assume that key-vertex must be in the top 2 nearest to camera along z axis
+    # we assume that key-vertex must be in the top 2 nearest to camera along z axis #Why?
     
     z_less_than_finalpoint = 0
     for i in range(len(box)):
@@ -279,6 +280,9 @@ def delete_noisy_point_cloud(final, Current_Index, KeyPoint, delete_times_every_
     # deleting method: from KeyPoint, calculate the point with maximum/minimum x and y,
     # extract their indexes, and delete them from numpy.array
     # one basic assumption on box's location order is: 0 to 3 => left-bottom to left_top (counter-clockwise)
+    # NOTE assumption above is on the zx plane
+    # NOTE this is zx plane, not xz plane
+    # NOTE on the xz plane,  box order 0 to 3 is left bottom to right bottom (clockwise)
     if Current_Index == 2 or Current_Index == 3:
         for _ in range(delete_times_every_epoch):
             index = np.where(final == np.max(final[:, 0], axis=0))
@@ -404,7 +408,8 @@ def check_anchor_fitting(box, loc1, loc2, loc3, angle_1, angle_2, FinalIndex, Fi
             loc2[1] = FinalPoint[1] + (loc2[1] - FinalPoint[1]) * np.abs(
                 y_max - y_min) / height_width_rate / current_distance
         else:
-            current_distance = np.sqrt((loc2[0] - FinalPoint[0]) ** 2 + (loc2[1] - FinalPoint[1]) ** 2)
+            current_distance = np.sqrt((loc2[0] - FinalPoint[0]) ** 2 + (loc2[1] - FinalPoint[1]) ** 2) 
+            # distance should be np.abs(y_max - y_min) / height_length_rate
             loc2[0] = FinalPoint[0] + (loc2[0] - FinalPoint[0]) * np.abs(
                 y_max - y_min) / height_length_rate / current_distance
             loc2[1] = FinalPoint[1] + (loc2[1] - FinalPoint[1]) * np.abs(
@@ -490,12 +495,13 @@ def Find_Intersection_Point(box, FinalIndex, right_point, left_point, FinalPoint
         loc1 = np.linalg.inv(equation_2_left).dot(equation_2_right.T)
         vector_1 = np.array([loc1[0] - FinalPoint[0], loc1[1] - FinalPoint[1]])
         angle_1 = np.abs(np.arcsin((right_point[0] * vector_1[1] - right_point[1] * vector_1[0]) / (
-                    np.linalg.norm(vector_1) * np.linalg.norm(right_point))))
+                    np.linalg.norm(vector_1) * np.linalg.norm(right_point)))) # VAGUE
 
         if (loc1[0] - FinalPoint[0]) * (box[FinalIndex - 1][0] - FinalPoint[0]) + \
            (loc1[1] - FinalPoint[1]) * (box[FinalIndex - 1][1] - FinalPoint[1]) < 0:
             loc1 = box[FinalIndex - 1].copy()
 
+    # For the index on the other side of FinalIndex
     equation_1_left = np.array(
         [[box[(FinalIndex + 1) % 4][1] - box[FinalIndex][1], box[FinalIndex][0] - box[(FinalIndex + 1) % 4][0]],
          [right_point[1], -1 * right_point[0]]])
@@ -535,7 +541,7 @@ def Find_Intersection_Point(box, FinalIndex, right_point, left_point, FinalPoint
 
 
 def generate_result(base, pickle_save_path, image_save_path, label_save_path, detect_config, save_det_image):
-
+    
     try:
         seq = base
 
@@ -583,7 +589,7 @@ def generate_result(base, pickle_save_path, image_save_path, label_save_path, de
                 if img_down is None:
                     continue
 
-            if loc2 is not None:
+            if loc2 is not None: #Will choosing loc0 or loc1 be different?
                 _, std_iou = iou_3d(objects[i].corners, loc0, loc1, loc2, loc3, y_max=y_max, y_min=y_min)
                 iou_collection.append(std_iou)
 
@@ -603,7 +609,7 @@ def generate_result(base, pickle_save_path, image_save_path, label_save_path, de
                 CurrentObject.occlusion = objects[i].occlusion
                 CurrentObject.corners = std_box_3d
                 CurrentObject.boxes = objects[i].boxes
-                CurrentObject.orientation = objects[i].orientation
+                CurrentObject.orientation = objects[i].orientation #What is orientation here?
                 write_result_to_label(seq, i, CurrentObject, calib, label_save_path)
                 total_object_number += 1
             else:
@@ -683,7 +689,7 @@ def merge_validation_to_labels(valid_split_path, det_label_save_path, gt_label_s
 
 
 if __name__ == "__main__":
-
+    
     parser = argparse.ArgumentParser()
     parser.add_argument(
         '--process', 
@@ -778,13 +784,15 @@ if __name__ == "__main__":
     
     with open(args.train_split_path, 'r') as fp:
         train_index_collection = fp.readlines()
+        
+    
 
     for train_idx in train_index_collection:
         train_idx = train_idx.strip()
            
         assert len(train_idx) == 6
-        pool.apply_async(generate_result, (train_idx, args.pickle_save_path, image_save_path, 
-                                           label_save_path, detect_config, args.save_det_image))
+        pool.apply_async(generate_result, (train_idx, args.pickle_save_path, image_save_path, label_save_path, detect_config, args.save_det_image))
+        #generate_result(train_idx, args.pickle_save_path, image_save_path, label_save_path, detect_config, args.save_det_image)
 
     pool.close()
     pool.join()
