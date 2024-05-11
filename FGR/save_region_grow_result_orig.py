@@ -11,7 +11,6 @@ from easydict import EasyDict
 
 from utils import kitti_utils_official
 
-
 def save_result(seq, output_dir, kitti_dataset_path, region_growth_config):
     # print("%s: begin" % seq)
     
@@ -47,22 +46,23 @@ def save_result(seq, output_dir, kitti_dataset_path, region_growth_config):
     pc_all, object_filter_all = kitti_utils_official.get_point_cloud_my_version(lidar_path, calib, img.shape, back_cut=False)
     mask_ground_all, ground_sample_points = kitti_utils_official.calculate_ground(lidar_path, calib, img.shape, 0.2, back_cut=False)
     
-    z_list = [] # list of medians of depth? of points inside 2D bbox
-    index_list = [] # list of all objects indices
-    valid_list = [] # list of valid objects. If pc in 3D box is >= 30, then it is valid.
+    z_list = []         # list of medians of depth? of points inside 2D bbox
+    index_list = []     # list of all objects indices
+    valid_list = []     # list of valid objects. If pc in 3D box is >= 30, then it is valid.
 
     valid_index = []
 
+    # Sort objects according to median depth
     for i in range(len(objects)):
         total_object_number += 1
         flag = 1
 
         _, object_filter = kitti_utils_official.get_point_cloud_my_version(lidar_path, calib, img.shape, [objects[i].boxes[0]], back_cut=False)
         pc = pc_all[object_filter == 1]
-        
-        filter_sample = kitti_utils_official.calculate_gt_point_number(pc, objects[i].corners) #Why have access to 3D GT box
+  
+        filter_sample = kitti_utils_official.calculate_gt_point_number(pc, objects[i].corners)          # Why have access to 3D GT box
         pc_in_box_3d = pc[filter_sample]
-        if len(pc_in_box_3d) < 30:
+        if len(pc_in_box_3d) < 0:               # changed from 30
             flag = 0
 
         if flag == 1:
@@ -89,16 +89,16 @@ def save_result(seq, output_dir, kitti_dataset_path, region_growth_config):
         count = 0
         mask_seg_list = []
 
+        # Find the best j (threshold)
         for j in range(thresh_seg_max):
             thresh = (j + 1) * 0.1
-            _, object_filter = kitti_utils_official.get_point_cloud_my_version(
-                lidar_path, calib, img.shape, [objects[i].boxes[0]], back_cut=False)
+            _, object_filter = kitti_utils_official.get_point_cloud_my_version(lidar_path, calib, img.shape, [objects[i].boxes[0]], back_cut=False)
             
             filter_z = pc_all[:, 2] > 0
             mask_search = mask_ground_all* object_filter_all * mask_object * filter_z
             mask_origin = mask_ground_all * object_filter * mask_object * filter_z
-            mask_seg = kitti_utils_official.region_grow_my_version(pc_all.copy(), 
-                                                                   mask_search, mask_origin, thresh, ratio)
+            mask_seg = kitti_utils_official.region_grow_my_version(pc_all.copy(), mask_search, mask_origin, thresh, ratio)
+
             if mask_seg.sum() == 0:
                 continue
 
@@ -109,20 +109,22 @@ def save_result(seq, output_dir, kitti_dataset_path, region_growth_config):
             result[count, 0] = j  
             result[count, 1] = mask_seg.sum()
             mask_seg_list.append(mask_seg)
-        
-        #import pdb; pdb.set_trace()
+
         best_j = result[np.argmax(result[:, 1]), 0]
+        
         try:
             mask_seg_best = mask_seg_list[int(best_j)]
             mask_object *= (1 - mask_seg_best)
             pc = pc_all[mask_seg_best == 1].copy()
         except IndexError:
+            import pdb; pdb.set_trace() 
             # print("bad region grow result! deprecated")
             continue
-        if i not in valid_list: #Why do we have access to the valid list?
+
+        if i not in valid_list:         # Why do we have access to the valid list?
             continue
         
-        if kitti_utils_official.check_truncate(img.shape, objects[i].boxes_origin[0].box): #different with objects[i].boxes[0].box?
+        if kitti_utils_official.check_truncate(img.shape, objects[i].boxes_origin[0].box): # Is this different with objects[i].boxes[0].box? TODO Study this.
             # print('object %d truncates in %s, with bbox %s' % (i, seq, str(objects[i].boxes_origin[0].box)))
 
             mask_origin_new = mask_seg_best
@@ -149,7 +151,7 @@ def save_result(seq, output_dir, kitti_dataset_path, region_growth_config):
                 'pc': pc
             }
 
-    # save result
+    # Save result
     with open(os.path.join(output_dir, "%s.pickle" % seq), 'wb') as fp:
         pickle.dump(dic, fp)
 
@@ -187,9 +189,7 @@ if __name__ == "__main__":
         help='pre-defined parameters for running save_region_growth.py'
     )
     
-    
     args = parser.parse_args()
-    
     
     assert os.path.isfile(args.root_dir), "Can't find train sequence text file in: %s" % args.root_dir
     assert os.path.isfile(args.region_growth_config_path), "Can't find region growth config file in: %s" % args.region_growth_config_path
@@ -213,16 +213,14 @@ if __name__ == "__main__":
         seq_collection[i] = seq_collection[i].strip()
         assert len(seq_collection[i]) == 6
     
-    
-
     print("find %d training samples." % len(seq_collection))
     print("result will be stored in %s" % args.output_dir)
-
+    
     start = time.time()
     for seq in seq_collection:
         # save_result(seq)
-        pool.apply_async(save_result, (seq, args.output_dir, args.kitti_dataset_path, region_growth_config))
-        #save_result(seq, args.output_dir, args.kitti_dataset_path, region_growth_config)
+        #pool.apply_async(save_result, (seq, args.output_dir, args.kitti_dataset_path, region_growth_config))
+        save_result(seq, args.output_dir, args.kitti_dataset_path, region_growth_config)
 
     pool.close()
     pool.join()

@@ -12,7 +12,6 @@ import pickle
 import yaml
 from easydict import EasyDict
 
-
 def Find_2d_box(maximum, KeyPoint_3d, box_2d, p2, corner, detect_config, 
                 total_pc=None, cluster=None, truncate=False, sample_points=None):
 
@@ -21,9 +20,9 @@ def Find_2d_box(maximum, KeyPoint_3d, box_2d, p2, corner, detect_config,
         return None, None, None, None, None, None, None, None
     
     img = np.zeros((700, 700, 3), 'f4')
-    KeyPoint = KeyPoint_3d[:, [0, 2]].copy()
+    KeyPoint = KeyPoint_3d[:, [0, 2]].copy()        # NOTE Get the x and z values for BEV?
 
-    left_point  = np.linalg.inv(p2[:, [0,1,2]]).dot(np.array([box_2d[0], 0, 1]).copy().T)[[0, 2]]
+    left_point  = np.linalg.inv(p2[:, [0,1,2]]).dot(np.array([box_2d[0], 0, 1]).copy().T)[[0, 2]]       # TODO Intuition
     right_point = np.linalg.inv(p2[:, [0,1,2]]).dot(np.array([box_2d[2], 0, 1]).copy().T)[[0, 2]]
 
     mat_1 = np.array([[left_point[0], right_point[0]], [left_point[1], right_point[1]]])
@@ -32,8 +31,8 @@ def Find_2d_box(maximum, KeyPoint_3d, box_2d, p2, corner, detect_config,
     AverageValue_x = np.mean(KeyPoint[:, 0]) * 100
     AverageValue_y = np.mean(KeyPoint[:, 1]) * 100
     
-    # start our pipeline
-    # 1. find minimum bbox with special consideration: maximize pc number between current bbox
+    # Start our pipeline
+    # 1. Find minimum bbox with special consideration: maximize pc number between current bbox
     #    and its 0.8 times bbox with same bbox center and orientation
 
     current_angle = 0.0
@@ -44,7 +43,7 @@ def Find_2d_box(maximum, KeyPoint_3d, box_2d, p2, corner, detect_config,
 
     final = None
     seq = np.arange(0, 90.5 * np.pi / 180, 0.5 * np.pi / 180)
-    FinalPoint = np.array([0., 0.])
+    FinalPoint = np.array([0., 0.])     # Key Vertex in the xz realm?
 
     if maximum:
         cut_times = max(int(len(KeyPoint) * detect_config.CUT_RATE_MAX), 1)
@@ -53,6 +52,7 @@ def Find_2d_box(maximum, KeyPoint_3d, box_2d, p2, corner, detect_config,
 
     while True:
         minValue = -1
+        # Find the right angle i and the 2D bbox for the pc in BEV
         for i in seq:
             try:
                 RotateMatrix = np.array([[np.cos(i), -1 * np.sin(i)],
@@ -89,7 +89,7 @@ def Find_2d_box(maximum, KeyPoint_3d, box_2d, p2, corner, detect_config,
         box = np.array([[min_x, min_y],
                         [min_x, max_y],
                         [max_x, max_y],
-                        [max_x, min_y]])  # rotate clockwise
+                        [max_x, min_y]])                # rotate clockwise
 
         angle = current_angle
 
@@ -97,7 +97,7 @@ def Find_2d_box(maximum, KeyPoint_3d, box_2d, p2, corner, detect_config,
         box = np.dot(box, np.array([[np.cos(angle), np.sin(angle)],
                                     [-1 * np.sin(angle), np.cos(angle)]])).astype(np.float32)
 
-        index_1, index_2, point_1, point_2, number_1, number_2 = find_key_vertex_by_pc_number(KeyPoint, box)
+        index_1, index_2, point_1, point_2, number_1, number_2 = find_key_vertex_by_pc_number(KeyPoint, box) # index 1 is either 0 or 2, point_1 is the 2d point box[index_1], number1 is the number of pts in that side of diagonal
         
         # compare which side has the most points, then determine final diagonal, 
         # final key vertex (Current_FinalPoint) and its index (Current_Index) in bbox
@@ -131,8 +131,7 @@ def Find_2d_box(maximum, KeyPoint_3d, box_2d, p2, corner, detect_config,
                 if KeyPoint.shape[0] < detect_config.THRESH_MIN_POINTS_AFTER_DELETING:
                     return None, None, None, None, None, None, None, None
                 
-                index, KeyPoint, final = delete_noisy_point_cloud(final, Current_Index, KeyPoint, 
-                                                                  detect_config.DELETE_TIMES_EVERY_EPOCH)
+                index, KeyPoint, final = delete_noisy_point_cloud(final, Current_Index, KeyPoint, detect_config.DELETE_TIMES_EVERY_EPOCH)
 
     # while the loop is broken, the variable [box] is the final selected bbox for car point clouds
     index_1, index_2, point_1, point_2, number_1, number_2 = find_key_vertex_by_pc_number(KeyPoint, box)
@@ -171,7 +170,7 @@ def Find_2d_box(maximum, KeyPoint_3d, box_2d, p2, corner, detect_config,
     # filter cars with very bad height
     if np.abs(y_max - y_min) < detect_config.MIN_HEIGHT_NORMAL or \
        np.abs(y_max - y_min) > detect_config.MAX_HEIGHT_NORMAL or \
-       (truncate == True and (y_max < detect_config.MIN_TOP_TRUNCATE or #why is this the constraint?
+       (truncate == True and (y_max < detect_config.MIN_TOP_TRUNCATE or     # why is this the constraint?
                               y_max > detect_config.MAX_TOP_TRUNCATE or 
                               y_min < detect_config.MIN_BOT_TRUNCATE or 
                               y_min > detect_config.MAX_BOT_TRUNCATE)):
@@ -180,7 +179,7 @@ def Find_2d_box(maximum, KeyPoint_3d, box_2d, p2, corner, detect_config,
         return None, None, None, None, None, None, error_message, 0
 
     
-    # 3. calculate intersection from key-vertex to frustum [horizontally], to get car's length and width
+    # 3. Calculate intersection from key-vertex to frustum [horizontally], to get car's length and width
     if truncate == True or FinalPoint_Weight[0] < detect_config.FINAL_POINT_FLIP_THRESH or \
                            FinalPoint_Weight[1] < detect_config.FINAL_POINT_FLIP_THRESH:
         loc1 = box[FinalIndex - 1]
@@ -223,7 +222,7 @@ def Find_2d_box(maximum, KeyPoint_3d, box_2d, p2, corner, detect_config,
                                                 length_width_boundary=detect_config.LENGTH_WIDTH_BOUNDARY)
         
     # 4. filter cases with still bad key-vertex definition,
-    # we assume that key-vertex must be in the top 2 nearest to camera along z axis #Why?
+    # we assume that key-vertex must be in the top 2 nearest to camera along z axis     # Why? 
     
     z_less_than_finalpoint = 0
     for i in range(len(box)):
@@ -271,7 +270,6 @@ def Find_2d_box(maximum, KeyPoint_3d, box_2d, p2, corner, detect_config,
     
     return img, img_side, FinalPoint, loc1, loc3, loc2, y_max, y_min
 
-
 def delete_noisy_point_cloud(final, Current_Index, KeyPoint, delete_times_every_epoch=2):
                 
     # re-calculate key-vertex's location
@@ -308,7 +306,6 @@ def delete_noisy_point_cloud(final, Current_Index, KeyPoint, delete_times_every_
             final = np.delete(final, index[0][0], axis=0)
     
     return index, KeyPoint, final
-
 
 def find_key_vertex_by_pc_number(KeyPoint, box):
     # first diagonal: (box[1], box[3]), corresponding points: box[0] / box[2]
@@ -364,7 +361,6 @@ def find_key_vertex_by_pc_number(KeyPoint, box):
     point_2 = box[index_2]
     
     return index_1, index_2, point_1, point_2, number_1, number_2
-
 
 def check_anchor_fitting(box, loc1, loc2, loc3, angle_1, angle_2, FinalIndex, FinalPoint, y_max, y_min,
                          anchor_fit_degree_thresh=10,
@@ -539,12 +535,11 @@ def Find_Intersection_Point(box, FinalIndex, right_point, left_point, FinalPoint
 
     return loc1, loc2, loc3, angle_1, angle_2
 
-
 def generate_result(base, pickle_save_path, image_save_path, label_save_path, detect_config, save_det_image):
     
     try:
         seq = base
-
+        import pdb; pdb.set_trace() 
         if not os.path.exists(os.path.join(pickle_save_path, base + '.pickle')):
             assert False, "no such file: %s" % (os.path.join(pickle_save_path, base + '.pickle'))
 
@@ -557,8 +552,7 @@ def generate_result(base, pickle_save_path, image_save_path, label_save_path, de
 
         calib = dic['calib']
         objects = {k: dic['sample'][k]['object'] \
-                    for k in dic['sample'].keys()}
-
+                    for k in dic['sample'].keys()}              # sample: {0: <utils.kitti_utils_official.KittiObject object at 0x7fe7033b9470>}
 
         if len(list(objects.keys())) == 0:
             print("%s: no valid cars" % seq)
@@ -569,12 +563,12 @@ def generate_result(base, pickle_save_path, image_save_path, label_save_path, de
         for i in objects.keys():
             pc = dic['sample'][i]['pc']
 
-            # ignore bad region grow result (with too many points), which may lead to process stuck in deleting points
+            # Ignore bad region grow result (with too many points), which may lead to process stuck in deleting points
             if len(pc) > 4000:
                 continue
 
-            # for standard data, y_min and y_max is a float number; 
-            # while meeting bugs, y_max is an error message while y_min is error code
+            # For standard data, y_min and y_max is a float number; 
+            # While meeting bugs, y_max is an error message while y_min is error code.
             img_down, img_side, loc0, loc1, loc2, loc3, y_max, y_min = Find_2d_box(True, pc, objects[i].boxes[0].box,
                                                                                    calib.p2, objects[i].corners, detect_config,
                                                                                    truncate=dic['sample'][i]['truncate'],
@@ -589,7 +583,7 @@ def generate_result(base, pickle_save_path, image_save_path, label_save_path, de
                 if img_down is None:
                     continue
 
-            if loc2 is not None: #Will choosing loc0 or loc1 be different?
+            if loc2 is not None: # Will choosing loc0 or loc1 be different?
                 _, std_iou = iou_3d(objects[i].corners, loc0, loc1, loc2, loc3, y_max=y_max, y_min=y_min)
                 iou_collection.append(std_iou)
 
@@ -619,8 +613,7 @@ def generate_result(base, pickle_save_path, image_save_path, label_save_path, de
         
     except:
         print(traceback.format_exc())
-        
-        
+              
 def write_result_to_label(picture_number, object_number, single_object, calib, label_save_path):
     
     # write detected box information to txt, same format as KITTI
@@ -673,8 +666,7 @@ def write_result_to_label(picture_number, object_number, single_object, calib, l
     label += "%.2f" % orientation
     
     with open("%s/%s.txt" % (label_save_path, picture_number), "a+") as fp:
-        fp.write(label + '\n')
-        
+        fp.write(label + '\n')   
 
 def merge_validation_to_labels(valid_split_path, det_label_save_path, gt_label_save_path):
     with open(args.valid_split_path, 'r') as fp:
@@ -686,7 +678,6 @@ def merge_validation_to_labels(valid_split_path, det_label_save_path, gt_label_s
         
         shutil.copy(os.path.join(gt_label_save_path,  '%s.txt' % valid_idx), 
                     os.path.join(det_label_save_path, '%s.txt' % valid_idx))
-
 
 if __name__ == "__main__":
     
@@ -791,8 +782,8 @@ if __name__ == "__main__":
         train_idx = train_idx.strip()
            
         assert len(train_idx) == 6
-        pool.apply_async(generate_result, (train_idx, args.pickle_save_path, image_save_path, label_save_path, detect_config, args.save_det_image))
-        #generate_result(train_idx, args.pickle_save_path, image_save_path, label_save_path, detect_config, args.save_det_image)
+        #pool.apply_async(generate_result, (train_idx, args.pickle_save_path, image_save_path, label_save_path, detect_config, args.save_det_image))
+        generate_result(train_idx, args.pickle_save_path, image_save_path, label_save_path, detect_config, args.save_det_image)
 
     pool.close()
     pool.join()
